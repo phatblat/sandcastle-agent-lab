@@ -36,6 +36,9 @@ The workflow should prove the useful loop locally before adding remote event han
 - **Provider-neutral agent shape:** The demo treats Claude Code and Codex as selectable agent providers, rather than building a Claude-only flow.
 - **Container as primary safety boundary:** Agent permission prompts may be bypassed for unattended work, so the container image, mounts, environment variables, and network posture must be visible and documented.
 - **Branch output before PR output:** The required artifact is code on a named git branch; opening a pull request is documented as an optional wrapper step rather than required v1 behavior.
+- **Worktree-per-invocation isolation:** Each branch or agent invocation should use a host-side git worktree bind-mounted into the container, so the main repository checkout remains available while many workers can run from one repo.
+- **Direct image installs:** V1 images should install required agent CLIs and system tools in Dockerfiles at build time rather than using Nix, mise, or runtime bootstrapping.
+- **Environment-seeded config:** The wrapper may seed `.sandcastle/.env` from host environment variables, but generated env files remain untracked and must not become the source of truth for secrets.
 
 ### Actors
 
@@ -89,6 +92,13 @@ The workflow should prove the useful loop locally before adding remote event han
 
 - R21. The repo must retain notes for extending the local demo into remote event handling, PR creation, and external notifications without making those capabilities required in v1.
 
+**Execution architecture**
+
+- R22. Each branch or agent invocation must run against a host-side git worktree rather than the main repository working copy.
+- R23. The selected worktree must be bind-mounted into the sandbox so the agent edits a normal git checkout visible from the host.
+- R24. The sandbox image setup must use direct Dockerfile installs for required agent CLIs and system tools.
+- R25. The wrapper may create or refresh `.sandcastle/.env` from selected host environment variables, and must keep that file ignored.
+
 ### Key Flows
 
 - F1. **Bootstrap local demo**
@@ -101,16 +111,16 @@ The workflow should prove the useful loop locally before adding remote event han
 - F2. **Interactive sandbox session**
   - **Trigger:** Developer wants to chat with Claude Code or Codex while contained in the sandbox.
   - **Actors:** A1, A2, A3, A4
-  - **Steps:** Developer chooses provider and branch, launches the interactive recipe, works in the agent CLI, exits the session, and inspects branch state.
-  - **Outcome:** The developer gets a contained interactive session with resulting changes isolated to the chosen branch or worktree strategy.
-  - **Covered by:** R5, R7, R8, R10, R14
+  - **Steps:** Developer chooses provider and branch, the wrapper creates or reuses a host-side worktree, the container bind-mounts that worktree, the developer works in the agent CLI, exits the session, and inspects branch state.
+  - **Outcome:** The developer gets a contained interactive session with resulting changes isolated to the chosen branch worktree while the main checkout remains free.
+  - **Covered by:** R5, R7, R8, R10, R14, R22, R23
 
 - F3. **Unattended branch-producing run**
   - **Trigger:** Developer has a prompt and wants the agent to run to completion.
   - **Actors:** A1, A2, A3, A4, A5
-  - **Steps:** Developer selects provider, branch, and prompt; Sandcastle runs the agent in the sandbox; logs and commit metadata are collected; the branch is left ready for review or push.
+  - **Steps:** Developer selects provider, branch, and prompt; the wrapper prepares the worktree and env file; Sandcastle runs the agent in the sandbox; logs and commit metadata are collected; the branch is left ready for review or push.
   - **Outcome:** The main artifact is code on a git branch, with enough metadata to inspect or continue the run.
-  - **Covered by:** R6, R9, R10, R11, R16, R17
+  - **Covered by:** R6, R9, R10, R11, R16, R17, R22, R23, R25
 
 - F4. **Resume or debug a run**
   - **Trigger:** An unattended run fails, stalls, or produces output that needs follow-up.
@@ -134,12 +144,16 @@ The workflow should prove the useful loop locally before adding remote event han
 - AE4. **Covers R12, R13, R15.** Given a developer reviews the security docs, when they inspect configured mounts and env variables, then each exposed host resource has a stated purpose and secrets remain outside tracked files.
 - AE5. **Covers R18.** Given a run needs follow-up and Sandcastle captured a session ID, when the developer uses the documented resume path, then the next run continues from that captured provider session.
 - AE6. **Covers R19, R20.** Given a GitHub Actions run has no Claude or Codex credentials, when the cheap smoke test runs, then it validates wrapper wiring without contacting an agent API.
+- AE7. **Covers R22, R23.** Given two agents run on different branches, when both sessions are active, then each uses a separate host worktree bind-mounted into its sandbox and the main checkout remains usable.
+- AE8. **Covers R24.** Given the sandbox image is built, when the container starts, then required agent CLIs are already installed without runtime bootstrap.
+- AE9. **Covers R25.** Given required credentials are present in the host environment, when the wrapper prepares a run, then `.sandcastle/.env` can be seeded without committing secrets.
 
 ### Success Criteria
 
 - A developer can run the local demo with OrbStack's Docker-compatible daemon without Docker Desktop-specific assumptions.
 - The same repo supports a Claude Code run and a Codex run through the same command surface.
 - The default demo path leaves reviewable git branch output rather than untracked host edits.
+- Multiple branch or agent workers can run from one repository without tying up the main checkout.
 - A security-conscious reader can tell which boundary is provided by Sandcastle, which boundary is provided by Docker, and which risks remain.
 - CI catches wrapper configuration regressions without spending agent tokens.
 - Future remote and PR automation ideas remain discoverable without expanding v1.
@@ -152,8 +166,11 @@ The workflow should prove the useful loop locally before adding remote event han
 - A permissive default Docker network for v1 local runs.
 - `just` recipes or equivalent shell-callable entrypoints for interactive and unattended sessions.
 - Claude Code and Codex provider selection.
+- Host-side git worktrees bind-mounted into containers for each branch or agent invocation.
+- Direct Dockerfile installs for sandbox tools and agent CLIs.
 - Branch-based output, log inspection, and session resume documentation.
 - Security notes covering secrets, mounts, network assumptions, and prompt bypass behavior.
+- Env-var seeding for ignored `.sandcastle/.env` files.
 - A GitHub Actions smoke test that does not require agent credentials.
 
 #### Deferred For Later
@@ -176,6 +193,7 @@ The workflow should prove the useful loop locally before adding remote event han
 - OrbStack is installed and exposes a Docker-compatible daemon to the host.
 - `node`, `npm`, `just`, `claude`, and `codex` are available or can be installed by following the repo docs.
 - Agent authentication is supplied through environment variables or provider-supported local auth, never committed to the repo.
+- `.sandcastle/.env` is treated as generated local configuration that can be seeded from host environment variables and remains ignored.
 - The initial repository can define its own Sandcastle wrapper scripts and prompt files because there is no existing codebase to preserve.
 - Sandcastle's current public API supports Docker sandboxes, Claude Code, Codex, interactive sessions, unattended runs, branch strategies, logging, and session capture or resume for Claude Code and Codex.
 - Sandcastle `0.10.0` is the latest npm `latest` version as of the 2026-06-28 registry lookup.
