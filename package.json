@@ -1,0 +1,14 @@
+{
+  "name": "sandcastle-demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@11.17.0",
+  "scripts": {
+    "smoke": "node scripts/smoke.mjs",
+    "test": "npm run smoke"
+  },
+  "devDependencies": {
+    "@ai-hero/sandcastle": "0.10.0"
+  }
+}
