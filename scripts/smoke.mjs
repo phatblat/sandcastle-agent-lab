@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 import { claudeCode, codex } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
@@ -75,5 +77,94 @@ const dockerSandbox = docker({
 });
 assert.equal(dockerSandbox.name, "docker");
 assert.deepEqual(dockerSandbox.env, {});
+
+const dockerfile = readFileSync("Dockerfile", "utf8");
+for (const packageName of [
+  "git",
+  "openssh-client",
+  "curl",
+  "jq",
+  "ripgrep",
+  "less",
+  "procps",
+  "build-essential",
+  "python3",
+  "make",
+  "nodejs",
+  "npm",
+  "gh",
+]) {
+  assert.match(dockerfile, new RegExp(`\\b${packageName}\\b`));
+}
+assert.match(dockerfile, /ARG CLAUDE_CODE_VERSION=2\.1\.195/);
+assert.match(dockerfile, /ARG CODEX_CLI_VERSION=0\.142\.3/);
+assert.match(dockerfile, /@anthropic-ai\/claude-code@\$\{CLAUDE_CODE_VERSION\}/);
+assert.match(dockerfile, /@openai\/codex@\$\{CODEX_CLI_VERSION\}/);
+assert.match(dockerfile, /USER agent/);
+assert.match(dockerfile, /ln -s \/home\/agent\/workspace \/workspace/);
+assert.match(dockerfile, /WORKDIR \/home\/agent\/workspace/);
+
+const justfile = readFileSync("justfile", "utf8");
+for (const recipe of [
+  "build-image",
+  "claude",
+  "codex",
+  "run-claude",
+  "run-codex",
+]) {
+  assert.match(justfile, new RegExp(`^${recipe}\\b`, "m"));
+}
+
+const dryRunEnv = { ...process.env, SANDCASTLE_DRY_RUN: "1" };
+const claudeDryRun = JSON.parse(
+  execFileSync(
+    process.execPath,
+    [
+      "scripts/sandcastle-agent.mjs",
+      "interactive",
+      "claude",
+      "agent/smoke-claude",
+      "--prompt",
+      "hello",
+    ],
+    { encoding: "utf8", env: dryRunEnv },
+  ),
+);
+assert.deepEqual(claudeDryRun, {
+  mode: "interactive",
+  provider: "claude",
+  branch: "agent/smoke-claude",
+  model: "claude-opus-4-7",
+  imageName: "sandcastle-agent-lab:local",
+  network: "bridge",
+  prompt: "hello",
+});
+
+const codexDryRun = JSON.parse(
+  execFileSync(
+    process.execPath,
+    [
+      "scripts/sandcastle-agent.mjs",
+      "run",
+      "codex",
+      "agent/smoke-codex",
+      "--prompt-file",
+      "prompts/example.md",
+      "--model",
+      "gpt-5.4",
+    ],
+    { encoding: "utf8", env: dryRunEnv },
+  ),
+);
+assert.deepEqual(codexDryRun, {
+  mode: "run",
+  provider: "codex",
+  branch: "agent/smoke-codex",
+  model: "gpt-5.4",
+  imageName: "sandcastle-agent-lab:local",
+  network: "bridge",
+  promptFile: "prompts/example.md",
+  logs: ".sandcastle/logs/agent-smoke-codex-codex.log",
+});
 
 console.log("Sandcastle smoke checks passed.");
